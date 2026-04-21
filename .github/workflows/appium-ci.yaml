@@ -1,17 +1,20 @@
-name: Appium Stable CI
+name: Mobile QA - Enterprise CI
 
 on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main, develop]
   workflow_dispatch:
   schedule:
     - cron: '0 4 * * *'
 
+
 jobs:
 
-  test:
+  # =========================
+  # 🟢 SMOKE TEST STAGE
+  # =========================
+  smoke:
     runs-on: ubuntu-22.04
 
     steps:
@@ -27,21 +30,18 @@ jobs:
       with:
         node-version: '18'
 
-    # 🔧 Install tools (FIXED + STABLE)
-    - name: Install dependencies
+    # 📦 Install dependencies (LOCK VERSION = stability)
+    - name: Install deps
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install robotframework robotframework-pabot
+        pip install robotframework==7.0
+        pip install robotframework-appiumlibrary==2.0.0
+        pip install robotframework-pabot==5.2.2
 
         npm install -g appium@2.19.0
         appium driver install uiautomator2@2.30.0
 
-        robot --version
-        pabot --version
-
-    # 📱 Emulator + Test
-    - name: Run Emulator & Tests
+    # 📱 SMOKE RUN
+    - name: Smoke Test
       uses: reactivecircus/android-emulator-runner@v2
       with:
         api-level: 30
@@ -51,23 +51,29 @@ jobs:
 
         emulator-options: >
           -no-window -no-audio -gpu swiftshader_indirect
-          -no-boot-anim -no-snapshot -accel off
+          -no-snapshot -no-boot-anim -accel off
 
         disable-animations: true
         boot-timeout: 600
 
         script: |
 
-          echo "🚀 Starting Appium"
+          echo "🚀 Start Appium"
           nohup appium -p 4723 --log appium.log > appium_out.log 2>&1 &
 
-          echo "⏳ Waiting Appium"
-          for i in {1..30}; do
+          # ======================
+          # WAIT APP
+          # ======================
+          echo "⏳ Waiting Appium..."
+          for i in {1..40}; do
             curl -s http://127.0.0.1:4723/status && break
             sleep 3
           done
 
-          echo "📱 Waiting Emulator Boot"
+          # ======================
+          # WAIT EMULATOR
+          # ======================
+          echo "📱 Waiting Emulator..."
           for i in {1..60}; do
             boot=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
             if [ "$boot" = "1" ]; then
@@ -77,28 +83,109 @@ jobs:
             sleep 5
           done
 
-          echo "📲 Device check"
           adb devices
 
-          echo "🧪 Running Tests"
-          pabot \
-            --processes 2 \
+          mkdir -p results/smoke
+
+          echo "🧪 RUN SMOKE"
+          robot \
             --loglevel DEBUG \
+            --outputdir results/smoke \
             -i smoke \
-            -d results/smoke \
             tests/
 
-    # 📦 Reports
+    # 📦 REPORTS
     - name: Upload Smoke Report
-      uses: actions/upload-artifact@v4
       if: always()
+      uses: actions/upload-artifact@v4
       with:
         name: smoke-report
         path: results/smoke
 
     - name: Upload Appium Log
-      uses: actions/upload-artifact@v4
       if: always()
+      uses: actions/upload-artifact@v4
       with:
         name: appium-log
         path: appium.log
+
+
+  # =========================
+  # 🟡 REGRESSION STAGE
+  # =========================
+  regression:
+    needs: smoke
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install deps
+      run: |
+        pip install robotframework==7.0
+        pip install robotframework-appiumlibrary==2.0.0
+        pip install robotframework-pabot==5.2.2
+
+        npm install -g appium@2.19.0
+        appium driver install uiautomator2@2.30.0
+
+    - name: Regression Test
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: 30
+        target: google_apis
+        arch: x86_64
+        profile: Nexus 5
+
+        emulator-options: >
+          -no-window -no-audio -gpu swiftshader_indirect
+          -no-snapshot -no-boot-anim -accel off
+
+        disable-animations: true
+        boot-timeout: 600
+
+        script: |
+
+          nohup appium -p 4723 --log appium.log > appium_out.log 2>&1 &
+
+          echo "⏳ Wait Appium"
+          for i in {1..40}; do
+            curl -s http://127.0.0.1:4723/status && break
+            sleep 3
+          done
+
+          echo "📱 Wait Emulator"
+          for i in {1..60}; do
+            boot=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            if [ "$boot" = "1" ]; then
+              break
+            fi
+            sleep 5
+          done
+
+          mkdir -p results/regression
+
+          echo "🧪 RUN REGRESSION (parallel safe)"
+          pabot \
+            --processes 2 \
+            --rerunfailed results/regression/output.xml \
+            --loglevel DEBUG \
+            -i regression \
+            -d results/regression \
+            tests/
+
+    # 📦 REPORT
+    - name: Upload Regression Report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: regression-report
+        path: results/regression
