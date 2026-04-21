@@ -1,4 +1,4 @@
-name: Mobile QA - Enterprise CI
+name: Mobile QA - Enterprise Resilient
 
 on:
   push:
@@ -9,29 +9,36 @@ on:
     - cron: '0 4 * * *'
 
 
+# =========================
+# 🧠 GLOBAL ENV (reuse idea)
+# =========================
+env:
+  APPIUM_PORT: 4723
+
+
 jobs:
 
-  # =========================
-  # 🟢 SMOKE TEST STAGE
-  # =========================
-  smoke:
+# =========================
+# 🟢 SMOKE STAGE
+# =========================
+  smoke-test:
     runs-on: ubuntu-22.04
 
     steps:
     - uses: actions/checkout@v4
 
-    # 🐍 Python
     - uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
-    # 🟢 Node
     - uses: actions/setup-node@v4
       with:
         node-version: '18'
 
-    # 📦 Install dependencies (LOCK VERSION = stability)
-    - name: Install deps
+    # =========================
+    # 🔒 LOCKED INSTALL
+    # =========================
+    - name: Install dependencies
       run: |
         pip install robotframework==7.0
         pip install robotframework-appiumlibrary==2.0.0
@@ -40,7 +47,9 @@ jobs:
         npm install -g appium@2.19.0
         appium driver install uiautomator2@2.30.0
 
-    # 📱 SMOKE RUN
+    # =========================
+    # 📱 EMULATOR + SAFE BOOT
+    # =========================
     - name: Smoke Test
       uses: reactivecircus/android-emulator-runner@v2
       with:
@@ -50,51 +59,82 @@ jobs:
         profile: Nexus 5
 
         emulator-options: >
-          -no-window -no-audio -gpu swiftshader_indirect
-          -no-snapshot -no-boot-anim -accel off
+          -wipe-data
+          -no-window
+          -no-audio
+          -gpu swiftshader_indirect
+          -no-snapshot
+          -no-boot-anim
+          -accel off
 
         disable-animations: true
-        boot-timeout: 600
+        emulator-boot-timeout: 900
 
         script: |
 
-          echo "🚀 Start Appium"
-          nohup appium -p 4723 --log appium.log > appium_out.log 2>&1 &
+          echo "===================="
+          echo "ADB SAFE INIT"
+          echo "===================="
 
-          # ======================
-          # WAIT APP
-          # ======================
-          echo "⏳ Waiting Appium..."
+          adb kill-server
+          adb start-server
+
+          # wait device ONLINE (robust)
           for i in {1..40}; do
-            curl -s http://127.0.0.1:4723/status && break
+            if adb devices | grep -w "device" | grep -v "offline"; then
+              echo "DEVICE ONLINE"
+              break
+            fi
             sleep 3
           done
 
-          # ======================
-          # WAIT EMULATOR
-          # ======================
-          echo "📱 Waiting Emulator..."
-          for i in {1..60}; do
-            boot=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
-            if [ "$boot" = "1" ]; then
-              echo "✅ Emulator Ready"
+          echo "===================="
+          echo "BOOT CHECK"
+          echo "===================="
+
+          for i in {1..80}; do
+            BOOT=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            if [ "$BOOT" = "1" ]; then
+              echo "BOOT COMPLETE"
               break
             fi
             sleep 5
           done
 
-          adb devices
+          echo "===================="
+          echo "START APPIUM SAFE"
+          echo "===================="
+
+          # clean port
+          lsof -ti:${APPIUM_PORT} | xargs kill -9 || true
+
+          nohup appium -p ${APPIUM_PORT} --log appium.log > appium_out.log 2>&1 &
+
+          # Appium health gate
+          for i in {1..40}; do
+            STATUS=$(curl -s http://127.0.0.1:${APPIUM_PORT}/status | grep -o '"ready":[ ]*true' || true)
+            if [ ! -z "$STATUS" ]; then
+              echo "APPIUM READY"
+              break
+            fi
+            sleep 3
+          done
+
+          echo "===================="
+          echo "RUN SMOKE"
+          echo "===================="
 
           mkdir -p results/smoke
 
-          echo "🧪 RUN SMOKE"
           robot \
-            --loglevel DEBUG \
+            --loglevel INFO \
             --outputdir results/smoke \
             -i smoke \
             tests/
 
-    # 📦 REPORTS
+    # =========================
+    # 📦 ARTIFACTS
+    # =========================
     - name: Upload Smoke Report
       if: always()
       uses: actions/upload-artifact@v4
@@ -102,7 +142,7 @@ jobs:
         name: smoke-report
         path: results/smoke
 
-    - name: Upload Appium Log
+    - name: Upload Logs
       if: always()
       uses: actions/upload-artifact@v4
       with:
@@ -110,10 +150,10 @@ jobs:
         path: appium.log
 
 
-  # =========================
-  # 🟡 REGRESSION STAGE
-  # =========================
-  regression:
+# =========================
+# 🟡 REGRESSION STAGE
+# =========================
+  regression-test:
     needs: smoke
     runs-on: ubuntu-22.04
 
@@ -128,7 +168,7 @@ jobs:
       with:
         node-version: '18'
 
-    - name: Install deps
+    - name: Install dependencies
       run: |
         pip install robotframework==7.0
         pip install robotframework-appiumlibrary==2.0.0
@@ -146,43 +186,51 @@ jobs:
         profile: Nexus 5
 
         emulator-options: >
-          -no-window -no-audio -gpu swiftshader_indirect
-          -no-snapshot -no-boot-anim -accel off
+          -wipe-data
+          -no-window
+          -no-audio
+          -gpu swiftshader_indirect
+          -no-snapshot
+          -no-boot-anim
+          -accel off
 
         disable-animations: true
-        boot-timeout: 600
+        emulator-boot-timeout: 900
 
         script: |
 
-          nohup appium -p 4723 --log appium.log > appium_out.log 2>&1 &
+          adb kill-server
+          adb start-server
 
-          echo "⏳ Wait Appium"
           for i in {1..40}; do
-            curl -s http://127.0.0.1:4723/status && break
+            adb devices | grep -w "device" && break
             sleep 3
           done
 
-          echo "📱 Wait Emulator"
-          for i in {1..60}; do
-            boot=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
-            if [ "$boot" = "1" ]; then
-              break
-            fi
+          for i in {1..80}; do
+            BOOT=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            [ "$BOOT" = "1" ] && break
             sleep 5
+          done
+
+          lsof -ti:${APPIUM_PORT} | xargs kill -9 || true
+
+          nohup appium -p ${APPIUM_PORT} --log appium.log > appium_out.log 2>&1 &
+
+          for i in {1..40}; do
+            curl -s http://127.0.0.1:${APPIUM_PORT}/status | grep -q '"ready": true' && break
+            sleep 3
           done
 
           mkdir -p results/regression
 
-          echo "🧪 RUN REGRESSION (parallel safe)"
           pabot \
             --processes 2 \
             --rerunfailed results/regression/output.xml \
-            --loglevel DEBUG \
             -i regression \
             -d results/regression \
             tests/
 
-    # 📦 REPORT
     - name: Upload Regression Report
       if: always()
       uses: actions/upload-artifact@v4
