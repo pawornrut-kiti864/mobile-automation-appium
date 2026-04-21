@@ -1,5 +1,4 @@
-name: Appium Mobile Tests (No Docker)
-
+name: Appium Mobile Tests
 on:
   push:
     branches: [ main ]
@@ -8,38 +7,41 @@ on:
     - cron: '0 4 * * *'
 
 jobs:
-  test:
-    runs-on: ubuntu-22.04
 
+  setup:
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4
 
-    # 🔒 Java (จำเป็นสำหรับ Android)
     - uses: actions/setup-java@v4
       with:
         distribution: temurin
         java-version: '17'
 
-    # 🔒 Python
     - uses: actions/setup-python@v5
       with:
         python-version: '3.10'
         cache: 'pip'
 
-    # 🔒 Node
     - uses: actions/setup-node@v4
       with:
         node-version: '18'
 
-    # 🔒 Install dependencies
-    - name: Install dependencies
+    - name: Install deps
       run: |
         pip install -r requirements.txt
         npm install -g appium@2.19.0
         appium driver install uiautomator2@2.30.0
 
-    # 📱 Start Emulator + Run Test
-    - name: Run Emulator + Tests
+
+  smoke-test:
+    needs: setup
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Run Smoke
       uses: reactivecircus/android-emulator-runner@v2
       with:
         api-level: 29
@@ -49,18 +51,52 @@ jobs:
         emulator-options: -no-window -no-audio -gpu swiftshader_indirect
         disable-animations: true
         script: |
-          echo "🚀 Start Appium"
           nohup appium -p 4723 > appium.log 2>&1 &
           sleep 10
+          robot -i smoke -d results/smoke tests/
 
-          echo "📱 Check device"
-          adb devices
-
-          echo "🧪 Run tests"
-          robot -d results tests/
-
-    # 📦 Upload results
-    - uses: actions/upload-artifact@v4
+    - name: Upload Smoke Report
+      uses: actions/upload-artifact@v4
       with:
-        name: results
-        path: results/
+        name: smoke-report
+        path: results/smoke
+
+    - name: Summary Smoke
+      run: |
+        echo "## Smoke Test Result" >> $GITHUB_STEP_SUMMARY
+        echo "Artifact: smoke-report" >> $GITHUB_STEP_SUMMARY
+        echo "Open report.html in artifact" >> $GITHUB_STEP_SUMMARY
+
+
+  regression-test:
+    needs: smoke-test
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Run Regression
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: 29
+        target: google_apis
+        arch: x86_64
+        profile: Nexus 6
+        emulator-options: -no-window -no-audio -gpu swiftshader_indirect
+        disable-animations: true
+        script: |
+          nohup appium -p 4723 > appium.log 2>&1 &
+          sleep 10
+          robot -i regression -d results/regression tests/
+
+    - name: Upload Regression Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: regression-report
+        path: results/regression
+
+    - name: Summary Regression
+      run: |
+        echo "## Regression Test Result" >> $GITHUB_STEP_SUMMARY
+        echo "Artifact: regression-report" >> $GITHUB_STEP_SUMMARY
+        echo "Open report.html in artifact" >> $GITHUB_STEP_SUMMARY
