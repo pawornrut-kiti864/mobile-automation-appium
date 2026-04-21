@@ -1,4 +1,4 @@
-name: Appium Mobile Tests (Stable)
+name: Appium Mobile Tests (Fast)
 
 on:
   push:
@@ -8,75 +8,91 @@ on:
     - cron: '0 4 * * *'
 
 jobs:
-  test:
-    runs-on: ubuntu-22.04   # lock OS
+
+  # 🟢 STAGE 1: Setup (cache dependency)
+  setup:
+    runs-on: ubuntu-22.04
 
     steps:
     - uses: actions/checkout@v4
 
-    # 🔒 Java
-    - uses: actions/setup-java@v4
-      with:
-        distribution: temurin
-        java-version: '17'
-
-    # 🔒 Node
-    - uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-
-    # 🔒 Python
     - uses: actions/setup-python@v5
       with:
         python-version: '3.10'
         cache: 'pip'
 
-    # 🔒 Install dependencies
-    - name: Install dependencies
-      run: |
-        pip install -r requirements.txt
+    - name: Install Python deps
+      run: pip install -r requirements.txt
 
+  # 🟢 STAGE 2: Test (parallel)
+  test:
+    needs: setup
+    runs-on: ubuntu-22.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [smoke, regression]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install Appium
+      run: |
         npm install -g appium@2.19.0
         appium driver install uiautomator2@2.30.0
 
-        appium -v
-        appium driver list
-
-    # 🔒 Emulator + Test
+    # 🚀 Emulator + Test
     - name: Run Emulator + Tests
       uses: reactivecircus/android-emulator-runner@v2
       with:
         api-level: 30
-        target: default
-        arch: x86_64
         profile: pixel_4
         emulator-options: -no-window -no-audio -gpu swiftshader_indirect
         disable-animations: true
         script: |
-          echo "✅ Emulator started"
-          adb devices
+          echo "Running suite: ${{ matrix.suite }}"
 
-          # 🔒 wait boot complete
           adb wait-for-device
           adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;'
 
-          # 🔒 Start Appium
           nohup appium -p 4723 > appium.log 2>&1 &
           sleep 15
 
-          curl http://127.0.0.1:4723/status || true
+          # 🔥 run by tag
+          robot -i ${{ matrix.suite }} -d results/${{ matrix.suite }} tests/
 
-          # 🔒 Run Robot
-          robot -d results tests/
-
-    # 🔒 Upload result
-    - uses: actions/upload-artifact@v4
+    - name: Upload Results
+      uses: actions/upload-artifact@v4
       with:
-        name: robot-results
+        name: result-${{ matrix.suite }}
+        path: results/${{ matrix.suite }}
+
+  # 🟢 STAGE 3: Report
+  report:
+    needs: test
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Download all results
+      uses: actions/download-artifact@v4
+      with:
         path: results/
 
-    # 🔒 Upload logs (debug)
-    - uses: actions/upload-artifact@v4
-      with:
-        name: appium-log
-        path: appium.log
+    - name: Show summary
+      run: |
+        echo "All test completed"
+        ls -R results/
