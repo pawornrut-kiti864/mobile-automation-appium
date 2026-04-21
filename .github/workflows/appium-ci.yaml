@@ -30,26 +30,40 @@ jobs:
     - uses: actions/setup-node@v4
       with:
         node-version: '18'
+        cache: 'npm'
 
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
+        pip install robotframework-pabot
         npm install -g appium@2.19.0
         appium driver install uiautomator2@2.30.0
 
     - name: Run Smoke
       uses: reactivecircus/android-emulator-runner@v2
       with:
-        api-level: 29
+        api-level: 30
         target: google_apis
         arch: x86_64
-        profile: Nexus 6
-        emulator-options: -no-window -no-audio -gpu swiftshader_indirect
+        profile: Nexus 5
+        emulator-options: -no-window -no-audio -gpu swiftshader_indirect -no-snapshot -no-boot-anim -accel off
         disable-animations: true
+        boot-timeout: 600
         script: |
           nohup appium -p 4723 > appium.log 2>&1 &
-          sleep 10
-          robot -i smoke -d results/smoke tests/
+
+          adb kill-server
+          adb start-server
+          adb wait-for-device
+
+          until adb shell getprop sys.boot_completed | grep -m 1 '1'; do
+            echo "Waiting for emulator..."
+            sleep 3
+          done
+
+          adb devices
+
+          pabot --processes 2 -i smoke -d results/smoke tests/
 
     - name: Upload Smoke Report
       uses: actions/upload-artifact@v4
@@ -78,26 +92,40 @@ jobs:
     - uses: actions/setup-node@v4
       with:
         node-version: '18'
+        cache: 'npm'
 
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
+        pip install robotframework-pabot
         npm install -g appium@2.19.0
         appium driver install uiautomator2@2.30.0
 
     - name: Run Regression
       uses: reactivecircus/android-emulator-runner@v2
       with:
-        api-level: 29
+        api-level: 30
         target: google_apis
         arch: x86_64
-        profile: Nexus 6
-        emulator-options: -no-window -no-audio -gpu swiftshader_indirect
+        profile: Nexus 5
+        emulator-options: -no-window -no-audio -gpu swiftshader_indirect -no-snapshot -no-boot-anim -accel off
         disable-animations: true
+        boot-timeout: 600
         script: |
           nohup appium -p 4723 > appium.log 2>&1 &
-          sleep 10
-          robot -i regression -d results/regression tests/
+
+          adb kill-server
+          adb start-server
+          adb wait-for-device
+
+          until adb shell getprop sys.boot_completed | grep -m 1 '1'; do
+            echo "Waiting for emulator..."
+            sleep 3
+          done
+
+          adb devices
+
+          pabot --processes 2 -i regression -d results/regression tests/
 
     - name: Upload Regression Report
       uses: actions/upload-artifact@v4
