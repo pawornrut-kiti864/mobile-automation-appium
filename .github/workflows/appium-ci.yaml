@@ -1,4 +1,4 @@
-name: Appium Mobile Tests (Docker)
+name: Appium Mobile Tests (No Docker)
 
 on:
   push:
@@ -14,6 +14,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    # 🔒 Java (จำเป็นสำหรับ Android)
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
     # 🔒 Python
     - uses: actions/setup-python@v5
       with:
@@ -25,34 +31,33 @@ jobs:
       with:
         node-version: '18'
 
-    # 🔒 Install deps
+    # 🔒 Install dependencies
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
         npm install -g appium@2.19.0
+        appium driver install uiautomator2@2.30.0
 
-    # 🐳 Start Android Emulator Container
-    - name: Start Docker Emulator
-      run: |
-        docker run -d \
-          -p 6080:6080 \
-          -p 4723:4723 \
-          --name android \
-          budtmo/docker-android-x86-11.0
+    # 📱 Start Emulator + Run Test
+    - name: Run Emulator + Tests
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: 29
+        target: google_apis
+        arch: x86_64
+        profile: Nexus 6
+        emulator-options: -no-window -no-audio -gpu swiftshader_indirect
+        disable-animations: true
+        script: |
+          echo "🚀 Start Appium"
+          nohup appium -p 4723 > appium.log 2>&1 &
+          sleep 10
 
-        echo "⏳ Waiting for emulator..."
-        sleep 60
+          echo "📱 Check device"
+          adb devices
 
-    # 🔍 Check emulator
-    - name: Check device
-      run: |
-        adb connect localhost:5555 || true
-        adb devices
-
-    # 🚀 Run Robot
-    - name: Run Tests
-      run: |
-        robot -d results tests/
+          echo "🧪 Run tests"
+          robot -d results tests/
 
     # 📦 Upload results
     - uses: actions/upload-artifact@v4
