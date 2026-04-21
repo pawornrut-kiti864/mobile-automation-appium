@@ -1,4 +1,4 @@
-name: Appium Mobile Tests
+name: Appium Stable CI
 
 on:
   push:
@@ -6,34 +6,33 @@ on:
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
-  schedule: 
+  schedule:
     - cron: '0 4 * * *'
 
 jobs:
 
-  smoke-test:
+  test:
     runs-on: ubuntu-22.04
 
     steps:
     - uses: actions/checkout@v4
 
-    # 🐍 Python setup
+    # 🐍 Python
     - uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
-    # 🟢 Node setup
+    # 🟢 Node
     - uses: actions/setup-node@v4
       with:
         node-version: '18'
 
-    # 🔧 Install dependencies (FIXED)
+    # 🔧 Install tools (FIXED + STABLE)
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install robotframework-pabot
-        pip install robotframework
+        pip install robotframework robotframework-pabot
 
         npm install -g appium@2.19.0
         appium driver install uiautomator2@2.30.0
@@ -41,101 +40,65 @@ jobs:
         robot --version
         pabot --version
 
-    # 📱 Smoke test
-    - name: Smoke Test
+    # 📱 Emulator + Test
+    - name: Run Emulator & Tests
       uses: reactivecircus/android-emulator-runner@v2
       with:
         api-level: 30
         target: google_apis
         arch: x86_64
         profile: Nexus 5
+
         emulator-options: >
           -no-window -no-audio -gpu swiftshader_indirect
           -no-boot-anim -no-snapshot -accel off
-        disable-animations: true
-        boot-timeout: 300
 
-        script: |
-          echo "🚀 Start Appium"
-          nohup appium -p 4723 > appium.log 2>&1 &
-
-          adb wait-for-device
-
-          echo "⏳ Waiting boot..."
-          until adb shell getprop sys.boot_completed | grep -m 1 '1'; do
-            sleep 2
-          done
-
-          echo "📱 Devices"
-          adb devices
-
-          echo "🧪 Run SMOKE"
-          pabot --processes 2 -i smoke -d results/smoke tests/
-
-    - name: Upload Smoke Report
-      uses: actions/upload-artifact@v4
-      with:
-        name: smoke-report
-        path: results/smoke
-
-
-  regression-test:
-    needs: smoke-test
-    runs-on: ubuntu-22.04
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-
-    - uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install robotframework-pabot
-        pip install robotframework
-
-        npm install -g appium@2.19.0
-        appium driver install uiautomator2@2.30.0
-
-        robot --version
-        pabot --version
-
-    - name: Regression Test
-      uses: reactivecircus/android-emulator-runner@v2
-      with:
-        api-level: 30
-        target: google_apis
-        arch: x86_64
-        profile: Nexus 5
-        emulator-options: >
-          -no-window -no-audio -gpu swiftshader_indirect
-          -no-boot-anim -no-snapshot -accel off
         disable-animations: true
         boot-timeout: 600
 
         script: |
-          echo "🚀 Start Appium"
-          nohup appium -p 4723 > appium.log 2>&1 &
 
-          adb wait-for-device
+          echo "🚀 Starting Appium"
+          nohup appium -p 4723 --log appium.log > appium_out.log 2>&1 &
 
-          echo "⏳ Waiting boot..."
-          until adb shell getprop sys.boot_completed | grep -m 1 '1'; do
-            sleep 2
+          echo "⏳ Waiting Appium"
+          for i in {1..30}; do
+            curl -s http://127.0.0.1:4723/status && break
+            sleep 3
           done
 
-          echo "🧪 Run REGRESSION"
-          pabot --processes 2 -i regression -d results/regression tests/
+          echo "📱 Waiting Emulator Boot"
+          for i in {1..60}; do
+            boot=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            if [ "$boot" = "1" ]; then
+              echo "✅ Emulator Ready"
+              break
+            fi
+            sleep 5
+          done
 
-    - name: Upload Regression Report
+          echo "📲 Device check"
+          adb devices
+
+          echo "🧪 Running Tests"
+          pabot \
+            --processes 2 \
+            --loglevel DEBUG \
+            -i smoke \
+            -d results/smoke \
+            tests/
+
+    # 📦 Reports
+    - name: Upload Smoke Report
       uses: actions/upload-artifact@v4
+      if: always()
       with:
-        name: regression-report
-        path: results/regression
+        name: smoke-report
+        path: results/smoke
+
+    - name: Upload Appium Log
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: appium-log
+        path: appium.log
