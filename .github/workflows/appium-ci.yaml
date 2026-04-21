@@ -1,15 +1,17 @@
 name: Appium Mobile Tests
+
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-  schedule: 
+  schedule:
     - cron: '0 4 * * *'
 
 jobs:
 
-  setup:
+  smoke-test:
     runs-on: ubuntu-22.04
+
     steps:
     - uses: actions/checkout@v4
 
@@ -27,19 +29,11 @@ jobs:
       with:
         node-version: '18'
 
-    - name: Install deps
+    - name: Install dependencies
       run: |
         pip install -r requirements.txt
         npm install -g appium@2.19.0
         appium driver install uiautomator2@2.30.0
-
-
-  smoke-test:
-    needs: setup
-    runs-on: ubuntu-22.04
-
-    steps:
-    - uses: actions/checkout@v4
 
     - name: Run Smoke
       uses: reactivecircus/android-emulator-runner@v2
@@ -61,12 +55,6 @@ jobs:
         name: smoke-report
         path: results/smoke
 
-    - name: Summary Smoke
-      run: |
-        echo "## Smoke Test Result" >> $GITHUB_STEP_SUMMARY
-        echo "Artifact: smoke-report" >> $GITHUB_STEP_SUMMARY
-        echo "Open report.html in artifact" >> $GITHUB_STEP_SUMMARY
-
 
   regression-test:
     needs: smoke-test
@@ -74,6 +62,26 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        npm install -g appium@2.19.0
+        appium driver install uiautomator2@2.30.0
 
     - name: Run Regression
       uses: reactivecircus/android-emulator-runner@v2
@@ -94,9 +102,3 @@ jobs:
       with:
         name: regression-report
         path: results/regression
-
-    - name: Summary Regression
-      run: |
-        echo "## Regression Test Result" >> $GITHUB_STEP_SUMMARY
-        echo "Artifact: regression-report" >> $GITHUB_STEP_SUMMARY
-        echo "Open report.html in artifact" >> $GITHUB_STEP_SUMMARY
