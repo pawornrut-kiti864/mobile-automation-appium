@@ -1,76 +1,61 @@
-name: Appium Mobile Tests
+name: Appium Mobile Tests (Docker)
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-  schedule:
+  schedule: 
     - cron: '0 4 * * *'
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    # ✅ Java
-    - name: Set up Java
-      uses: actions/setup-java@v4
+    # 🔒 Python
+    - uses: actions/setup-python@v5
       with:
-        distribution: temurin
-        java-version: 17
+        python-version: '3.10'
+        cache: 'pip'
 
-    # ✅ Node
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
+    # 🔒 Node
+    - uses: actions/setup-node@v4
       with:
-        node-version: 18
+        node-version: '18'
 
-    # ✅ Python
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: 3.10
-
-    # ✅ Install dependencies
+    # 🔒 Install deps
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
-        npm install -g appium
-        appium driver install uiautomator2
+        npm install -g appium@2.19.0
 
-    # ✅ Start Android Emulator (สำคัญมาก)
-    - name: Start Emulator
-      uses: reactivecircus/android-emulator-runner@v2
-      with:
-        api-level: 30
-        target: default
-        arch: x86_64
-        profile: pixel_4
-        script: echo "Emulator started"
-
-    # ✅ Start Appium
-    - name: Start Appium Server
+    # 🐳 Start Android Emulator Container
+    - name: Start Docker Emulator
       run: |
-        nohup appium -p 4723 &
-        sleep 15
+        docker run -d \
+          -p 6080:6080 \
+          -p 4723:4723 \
+          --name android \
+          budtmo/docker-android-x86-11.0
 
-    # ✅ Wait for device
-    - name: Wait for device
+        echo "⏳ Waiting for emulator..."
+        sleep 60
+
+    # 🔍 Check emulator
+    - name: Check device
       run: |
-        adb wait-for-device
+        adb connect localhost:5555 || true
         adb devices
 
-    # ✅ Run Robot Tests
-    - name: Run Robot Tests
+    # 🚀 Run Robot
+    - name: Run Tests
       run: |
         robot -d results tests/
 
-    # ✅ Upload Results
-    - name: Upload Reports
-      uses: actions/upload-artifact@v4
+    # 📦 Upload results
+    - uses: actions/upload-artifact@v4
       with:
-        name: robot-results
+        name: results
         path: results/

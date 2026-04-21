@@ -2,8 +2,8 @@
 Resource    ../resources/driver.robot
 Resource    ../resources/keywords.robot
 
-Suite Setup     Open Android App
-Suite Teardown    driver.Close Android App
+Suite Setup       Open Android App
+Suite Teardown    keywords.Close Android App
 
 Test Teardown   Run Keyword If Test Failed    Capture Page Screenshot
 
