@@ -1,0 +1,76 @@
+name: Appium Mobile Tests
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * *'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # ✅ Java
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: 17
+
+    # ✅ Node
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18
+
+    # ✅ Python
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.10
+
+    # ✅ Install dependencies
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        npm install -g appium
+        appium driver install uiautomator2
+
+    # ✅ Start Android Emulator (สำคัญมาก)
+    - name: Start Emulator
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: 30
+        target: default
+        arch: x86_64
+        profile: pixel_4
+        script: echo "Emulator started"
+
+    # ✅ Start Appium
+    - name: Start Appium Server
+      run: |
+        nohup appium -p 4723 &
+        sleep 15
+
+    # ✅ Wait for device
+    - name: Wait for device
+      run: |
+        adb wait-for-device
+        adb devices
+
+    # ✅ Run Robot Tests
+    - name: Run Robot Tests
+      run: |
+        robot -d results tests/
+
+    # ✅ Upload Results
+    - name: Upload Reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: robot-results
+        path: results/
